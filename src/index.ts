@@ -1,4 +1,5 @@
 import reactive from "./reactive";
+
 class Class1 {
   a: number;
   b: string;

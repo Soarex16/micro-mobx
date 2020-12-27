@@ -4,6 +4,7 @@ import MapCache from "./caching/map-cache";
 // Unique symbol to store internal object copy inside reactive wrapper
 const ORIGINAL_OBJ_SYMBOL = Symbol("original-object");
 
+// Object that holds current executing getter
 const GLOBAL_GETTER_CONTEXT: GetterExecutionContext = {
   currentGetter: undefined
 };
@@ -20,7 +21,11 @@ export interface GetterExecutionContext {
 }
 
 /**
- * Copy property from source into target and make it reactive
+ * Define in reactive wrapper property from internal object
+ * @param obj - reactive wrapper over internal object
+ * @param property - property to define
+ * @param ctx - getter context, used to determine current executing getter.
+ * Need for proper getters dependency management.
  */
 function defineReactivePrimitive<T>(
   obj: ReactiveObject<T>,
@@ -63,6 +68,14 @@ function defineReactivePrimitive<T>(
   });
 }
 
+/**
+ * Define reactive propery in proto bound to obj
+ * @param obj - object that acts as this inside property getter ans setter
+ * @param proto - prototype where defining getter
+ * @param prop - property to define in proto
+ * @param descriptor - property descriptor
+ * @param ctx - current getter context.
+ */
 function defineReactiveProperty<T>(
   obj: ReactiveObject<T>,
   proto: any,
@@ -81,6 +94,7 @@ function defineReactiveProperty<T>(
       } else {
         ctx.currentGetter = prop;
 
+        // recompute cached value
         const computedVal = originalGetter.bind(obj)();
         const updatedCacheValue = cache.get(prop);
         if (updatedCacheValue) {
@@ -96,6 +110,11 @@ function defineReactiveProperty<T>(
   Object.defineProperty(proto, prop, descriptor);
 }
 
+/**
+ * Makes full reactive copy of prototype chain
+ * @param obj - reactive object
+ * @param source - object which prototype chain will be copied
+ */
 function createReactivePrototypeChain<T>(
   obj: ReactiveObject<T>,
   source: any
@@ -104,12 +123,13 @@ function createReactivePrototypeChain<T>(
 
   let proto = source;
   let rProto: any = reactiveProtoRoot;
-  // Пока не размотали всю цепочку прототипов
+  // until the prototype chain ends
   while (Object.getPrototypeOf(proto) !== null) {
     proto = Object.getPrototypeOf(proto);
 
     rProto.__proto__ = {};
     rProto = rProto.__proto__;
+
     const protoDescriptors = Object.getOwnPropertyDescriptors(proto);
     Object.entries(protoDescriptors).forEach(([prop, descriptor]) => {
       defineReactiveProperty(obj, rProto, prop, descriptor);
@@ -119,8 +139,16 @@ function createReactivePrototypeChain<T>(
   return reactiveProtoRoot;
 }
 
+/**
+ * Primitive cache factory
+ */
 const createSimpleCache = () => new MapCache();
 
+/**
+ * Creates a wrapper over an object that effectively recomputes getters
+ * @param obj - object to be enhanced with reactive behavior
+ * @param cacheFactory - optional, specifies getters cache factory
+ */
 function reactive<T>(
   obj: T,
   cacheFactory: () => GettersCache = createSimpleCache
@@ -132,11 +160,15 @@ function reactive<T>(
     [ORIGINAL_OBJ_SYMBOL]: objectCopy
   };
 
+  // copy own values from original object
   const objDescriptors = Object.getOwnPropertyDescriptors(obj);
   Object.keys(objDescriptors).forEach((prop) => {
     defineReactivePrimitive(reactiveWrapper, prop);
   });
 
+  // copy full prototype chain
+  // this step is mandatory because we need to make
+  // properties from prototype chain also reactive
   // @ts-ignore
   reactiveWrapper.__proto__ = createReactivePrototypeChain(
     reactiveWrapper,
