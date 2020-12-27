@@ -1,2 +1,2 @@
-# reactive-objects-ts
+# reactive-state-management-experiments
 Created with CodeSandbox
