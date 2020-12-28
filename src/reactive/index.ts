@@ -1,4 +1,9 @@
 import { GETTERS_CACHE_SYMBOL, GettersCache } from "./caching";
+import {
+  GLOBAL_AUTORUN_CONTEXT,
+  recordAutorunDependency,
+  executeDependentAutorunFunctions
+} from "./autorun";
 import MapCache from "./caching/map-cache";
 
 // Unique symbol to store internal object copy inside reactive wrapper
@@ -26,11 +31,13 @@ export interface GetterExecutionContext {
  * @param property - property to define
  * @param ctx - getter context, used to determine current executing getter.
  * Need for proper getters dependency management.
+ * @param autorunCtx - current autorun execution context
  */
 function defineReactivePrimitive<T>(
   obj: ReactiveObject<T>,
   property: string,
-  ctx = GLOBAL_GETTER_CONTEXT
+  ctx = GLOBAL_GETTER_CONTEXT,
+  autorunCtx = GLOBAL_AUTORUN_CONTEXT
 ) {
   const original = obj[ORIGINAL_OBJ_SYMBOL];
 
@@ -50,6 +57,8 @@ function defineReactivePrimitive<T>(
         }
       }
 
+      recordAutorunDependency(autorunCtx, obj, property);
+
       // @ts-ignore
       return original[property];
     },
@@ -64,6 +73,8 @@ function defineReactivePrimitive<T>(
 
       // @ts-ignore
       original[property] = value;
+
+      executeDependentAutorunFunctions(autorunCtx, obj, property);
     }
   });
 }
@@ -74,18 +85,24 @@ function defineReactivePrimitive<T>(
  * @param proto - prototype where defining getter
  * @param prop - property to define in proto
  * @param descriptor - property descriptor
- * @param ctx - current getter context.
+ * @param ctx - current getter context
+ * @param autorunCtx - current autorun execution context
  */
 function defineReactiveProperty<T>(
   obj: ReactiveObject<T>,
   proto: any,
   prop: string,
   descriptor: PropertyDescriptor,
-  ctx = GLOBAL_GETTER_CONTEXT
+  ctx = GLOBAL_GETTER_CONTEXT,
+  autorunCtx = GLOBAL_AUTORUN_CONTEXT
 ) {
   if (descriptor.get) {
     const originalGetter = descriptor.get;
     descriptor.get = function reactiveGetter() {
+      // no need to record computed values because
+      // they are composed of primitive reactive values
+      // recordAutorunDependency(autorunCtx, obj, prop);
+
       const cache = obj[GETTERS_CACHE_SYMBOL];
       const cachedGetter = cache.get(prop);
 
@@ -95,7 +112,7 @@ function defineReactiveProperty<T>(
         ctx.currentGetter = prop;
 
         // recompute cached value
-        const computedVal = originalGetter.bind(obj)();
+        const computedVal = originalGetter.apply(obj);
         const updatedCacheValue = cache.get(prop);
         if (updatedCacheValue) {
           updatedCacheValue.val = computedVal;
@@ -107,6 +124,16 @@ function defineReactiveProperty<T>(
       }
     };
   }
+
+  if (descriptor.set) {
+    const originalSetter = descriptor.set;
+    descriptor.set = function reactiveSetter(value) {
+      originalSetter.call(this, value);
+
+      executeDependentAutorunFunctions(autorunCtx, obj, prop);
+    };
+  }
+
   Object.defineProperty(proto, prop, descriptor);
 }
 

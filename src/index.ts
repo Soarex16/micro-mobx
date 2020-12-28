@@ -1,4 +1,5 @@
 import reactive from "./reactive";
+import autorun from "./reactive/autorun";
 
 class Class1 {
   a: number;
@@ -38,11 +39,13 @@ class Class1 {
 
 const obs1 = reactive(new Class1());
 
+/*
 console.log(obs1.tripleA);
 console.log(obs1.doubleA);
 console.log(obs1.doubleA);
 obs1.doubleA = 12;
 console.log(obs1.doubleA);
+*/
 
 /*
 const startT = Date.now();
@@ -77,3 +80,8 @@ class Class2 extends Class1 {
 const obs2 = reactive(new Class2());
 //console.log(obs2);
 //console.log(obs2.doubleA);
+
+autorun(() => console.log(obs1.doubleA + obs2.c));
+obs1.a = 6;
+obs1.c = "x";
+obs2.c = "sss";
