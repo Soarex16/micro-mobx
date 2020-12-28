@@ -1,2 +1,3 @@
-# reactive-state-management-experiments
-Created with CodeSandbox
+# Micro MobX
+
+Educational project to master JS and MobX internals
